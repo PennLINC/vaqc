@@ -334,26 +334,37 @@ def get_fmriprep_outlier_volumes_from_confounds(confounds_df):
     return list(return_df.index)
 
 
-def create_bold_report_json(bold_corrected_file, confounds_file, outpath=op.abspath('./report.json')):
+def get_fmriprep_stats_info(bold_corrected_file, confounds_df):
+    """Create a dictionary that has single values per interesting thing.
+    @zizu!
+    eg {"max_fd": 99.4, "max_rmsd":5, "dimension_x": 140, "subject_id}
+    """
+    return {}
 
+
+def create_bold_report_json(bold_corrected_file, confounds_file, outpath):
+    """Creates a json file on disk with images and info about the fmriprep run.
+    """
     report = {}
     report['dwi_corrected'] = createSprite4D(bold_corrected_file)
 
-    b0, mask = createB0_ColorFA_Mask_Sprites(dwi_corrected_file)
+    b0, mask = createB0_ColorFA_Mask_Sprites(bold_corrected_file)
     report['b0'] = b0
     report['anat_mask'] = mask
 
+    # Load the confounds data
+    confounds_df = pd.read_csv(str(confounds_file), sep="\t")
+
     # Find the outlier volumes
-    report['outlier_volumes'] = outlier_indices.tolist()
-
-    with open(eddy_report, 'r') as f:
-        report['eddy_report'] = f.readlines()
-
-    report['eddy_params'] = np.genfromtxt(eddy_rms).tolist()
-    eddy_qc = load_json(eddy_qc_file)
-    report['eddy_quad'] = eddy_qc
+    report['outlier_volumes'] = \
+        get_fmriprep_outlier_volumes_from_confounds(confounds_df)
+    report['eddy_params'] = confounds_df[
+        ['framewise_displacement', 'rmsd']].to_numpy().tolist()
+    report['eddy_quad'] = {}
+    report['qc_scores'] = get_fmriprep_stats_info(bold_corrected_file, confounds_file)
     save_json(outpath, report)
-    return outpath
+    return report['qc_scores']
+
 
 def find_confounds_file(nii_file):
     """Finds the corresponding confounds.tsv file for a bold.nii.gz
@@ -378,8 +389,12 @@ def report_from_nii(nii_file):
 
     nii_file: pathlib.Path
     """
+    output_file = str(nii_file).replace("desc-preproc_bold.nii.gz",
+                                        "vaqc.json")
     confounds_file = find_confounds_file(nii_file)
-
+    subject_scores = create_bold_report_json(nii_file, confounds_file,
+                                             output_file)
+    return subject_scores
 
 
 def process_fmriprep_subject(subject_dir):
@@ -391,6 +406,11 @@ def process_fmriprep_subject(subject_dir):
     """
     processed_images = subject_dir.rglob("**/*desc-preproc*_bold.nii.gz")
     print("found ", "\n\t".join(map(str, processed_images)))
+    image_qcs = []
+    for image_file in processed_images:
+        image_qcs.append(report_from_nii(image_file))
+
+    return image_qcs
 
 
 def process_fmriprep(input_dir):
@@ -405,6 +425,47 @@ def process_fmriprep(input_dir):
     subject_dirs = [_pth for _pth in input_dir.glob("sub-*")
                     if _pth.is_dir()]
 
+    summary_json = input_dir / "vaqc.json"
+
+    image_qcs = []
     for subject_dir in subject_dirs:
         print("Processing directory:", str(subject_dir))
-        process_fmriprep_subject(subject_dir)
+        image_qcs += process_fmriprep_subject(subject_dir)
+    group_report = {
+        "report_type": "dwi_qc_report",
+        "pipeline": "qsiprep",
+        "pipeline_version": 0,
+        "boilerplate": "",
+        "metric_explanation": {
+            "raw_dimension_x": "Number of x voxels in raw images",
+            "raw_dimension_y": "Number of y voxels in raw images",
+            "raw_dimension_z": "Number of z voxels in raw images",
+            "raw_voxel_size_x": "Voxel size in x direction in raw images",
+            "raw_voxel_size_y": "Voxel size in y direction in raw images",
+            "raw_voxel_size_z": "Voxel size in z direction in raw images",
+            "raw_max_b": "Maximum b-value in s/mm^2 in raw images",
+            "raw_neighbor_corr": "Neighboring DWI Correlation (NDC) of raw images",
+            "raw_num_bad_slices": "Number of bad slices in raw images (from DSI Studio)",
+            "raw_num_directions": "Number of directions sampled in raw images",
+            "t1_dimension_x": "Number of x voxels in preprocessed images",
+            "t1_dimension_y": "Number of y voxels in preprocessed images",
+            "t1_dimension_z": "Number of z voxels in preprocessed images",
+            "t1_voxel_size_x": "Voxel size in x direction in preprocessed images",
+            "t1_voxel_size_y": "Voxel size in y direction in preprocessed images",
+            "t1_voxel_size_z": "Voxel size in z direction in preprocessed images",
+            "t1_max_b": "Maximum b-value s/mm^2 in preprocessed images",
+            "t1_neighbor_corr": "Neighboring DWI Correlation (NDC) of preprocessed images",
+            "t1_num_bad_slices": "Number of bad slices in preprocessed images (from DSI Studio)",
+            "t1_num_directions": "Number of directions sampled in preprocessed images",
+            "mean_fd": "Mean framewise displacement from head motion",
+            "max_fd": "Maximum framewise displacement from head motion",
+            "max_rotation": "Maximum rotation from head motion",
+            "max_translation": "Maximum translation from head motion",
+            "max_rel_rotation": "Maximum rotation relative to the previous head position",
+            "max_rel_translation": "Maximum translation relative to the previous head position",
+            "t1_dice_distance": "Dice score for the overlap of the T1w-based brain mask and the b=0 ref mask"
+        },
+        "subjects": image_qcs
+    }
+    save_json(str(summary_json), group_report)
+    return 1
