@@ -10,7 +10,12 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = [ ]
+requirements = [
+    'matplotlib',
+    'dipy',
+    'numpy',
+    'nilearn'
+]
 
 setup_requirements = [ ]
 
@@ -30,7 +35,8 @@ setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
     ],
-    description="Python package for preparing data to be viewed in the Vue App for QC",
+    description="Python package for preparing data to be viewed in the "
+                "Vue App for QC",
     entry_points={
         'console_scripts': [
             'vaqc=vaqc.cli:main',
@@ -40,13 +46,13 @@ setup(
     license="MIT license",
     long_description=readme + '\n\n' + history,
     include_package_data=True,
-    keywords='vaqc',
+    keywords='MRI,QC,JavaScript',
     name='vaqc',
     packages=find_packages(include=['vaqc', 'vaqc.*']),
     setup_requires=setup_requirements,
     test_suite='tests',
     tests_require=test_requirements,
-    url='https://github.com/mattcieslak/vaqc',
+    url='https://github.com/pennlinc/vaqc',
     version='0.1.0',
     zip_safe=False,
 )
