@@ -331,7 +331,6 @@ def create_bold_report_json(bold_corrected_file, confounds_file, outpath=op.absp
     report = {}
     report['dwi_corrected'] = createSprite4D(bold_corrected_file)
 
-
     b0, mask = createB0_ColorFA_Mask_Sprites(dwi_corrected_file)
     report['b0'] = b0
     report['anat_mask'] = mask
