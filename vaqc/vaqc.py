@@ -323,7 +323,15 @@ def get_fmriprep_outlier_volumes_from_confounds(confounds_df):
 
     eg [34, 35, 100, 150]
     """
-    return []
+
+    # get the motion columns
+    motion = confounds_df.filter(regex='motion')
+
+    # find any rows with values above 0
+    return_df = motion[(motion > 0).any(1)]
+
+    # return the index (row names) of this df
+    return list(return_df.index)
 
 
 def create_bold_report_json(bold_corrected_file, confounds_file, outpath=op.abspath('./report.json')):
