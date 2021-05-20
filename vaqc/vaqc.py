@@ -347,14 +347,12 @@ def get_fmriprep_stats_info(bold_corrected_file, confounds_df):
         idx.update({bb[i].split('-')[0]: bb[i].split('-')[1]}) # get subjectid, sessiion id, task id if present 
     # get those qc
 
-    confounds_df = confounds_df.fillna(0) # the first index of FD,rmsd and dvars are NaNs  
-
-    qc = {'mean_fd': confounds_df.framewise_displacement.mean(),
-          'max_fd': confounds_df.framewise_displacement.max(),
-          'mean_rmsd': confounds_df.rmsd.mean(),
-          'max_rmsd': confounds_df.rmsd.max(),
-          'mean_dvars': confounds_df.dvars.mean(),
-          'max_dvars': confounds_df.dvars.max()} 
+    qc = {'mean_fd': np.nanmean(confounds_df.framewise_displacement),
+          'max_fd': np.nanmax(confounds_df.framewise_displacement),
+          'mean_rmsd': np.nanmean(confounds_df.rmsd),
+          'max_rmsd': np.nanmax(confounds_df.rmsd),
+          'mean_dvars': np.nanmean(confounds_df.dvars),
+          'max_dvars': np.namax(confounds_df.dvars)} 
 
     return idx.update(qc)
 
