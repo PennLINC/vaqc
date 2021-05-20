@@ -336,10 +336,25 @@ def get_fmriprep_outlier_volumes_from_confounds(confounds_df):
 
 def get_fmriprep_stats_info(bold_corrected_file, confounds_df):
     """Create a dictionary that has single values per interesting thing.
-    @zizu!
+    @ziz
     eg {"max_fd": 99.4, "max_rmsd":5, "dimension_x": 140, "subject_id}
+
     """
-    return {}
+    _, file1 = op.split(bold_corrected_file)
+    bb = file1.split('_')
+    idx = {}
+    for i in range(len(bb)-1):
+        idx.update({bb[i].split('-')[0]: bb[i].split('-')[1]}) # get subjectid, sessiion id, task id if present 
+    # get those qc
+
+    qc = {'mean_fd': np.nanmean(confounds_df.framewise_displacement),
+          'max_fd': np.nanmax(confounds_df.framewise_displacement),
+          'mean_rmsd': np.nanmean(confounds_df.rmsd),
+          'max_rmsd': np.nanmax(confounds_df.rmsd),
+          'mean_dvars': np.nanmean(confounds_df.dvars),
+          'max_dvars': np.namax(confounds_df.dvars)} 
+
+    return idx.update(qc)
 
 
 def create_bold_report_json(bold_corrected_file, confounds_file, outpath):
