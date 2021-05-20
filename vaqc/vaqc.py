@@ -440,7 +440,7 @@ def process_fmriprep_subject(subject_dir):
     subject_dir: pathlib.Path
 
     """
-    processed_images = subject_dir.rglob("**/*desc-preproc*_bold.nii.gz")
+    processed_images = list(subject_dir.rglob("**/*desc-preproc*_bold.nii.gz"))
     print("found ", "\n\t".join(map(str, processed_images)))
     image_qcs = []
     for image_file in processed_images:
