@@ -392,8 +392,8 @@ def create_bold_report_json(bold_corrected_file, confounds_file, outpath):
     # Find the outlier volumes
     report['outlier_volumes'] = \
         get_fmriprep_outlier_volumes_from_confounds(confounds_df)
-    report['eddy_params'] = confounds_df[
-        ['framewise_displacement', 'rmsd']].to_numpy().tolist()
+    report['eddy_params'] = np.nan_to_num(confounds_df[
+        ['framewise_displacement', 'rmsd']].to_numpy()).tolist()
     report['eddy_quad'] = {}
     report['qc_scores'] = get_fmriprep_stats_info(bold_corrected_file,
                                                   confounds_df)
