@@ -1,4 +1,5 @@
 import base64
+import re
 import os.path as op
 from io import BytesIO
 import matplotlib
@@ -12,6 +13,27 @@ import nilearn.image as nim
 
 from dipy.segment.mask import median_otsu
 from nipype.utils.filemanip import save_json, load_json
+
+
+def get_bids_params(fullpath):
+    bids_patterns = [
+        r'^(.*/)?(?P<subject_id>sub-[a-zA-Z0-9]+)',
+        '^.*_(?P<session_id>ses-[a-zA-Z0-9]+)',
+        '^.*_(?P<task_id>task-[a-zA-Z0-9]+)',
+        '^.*_(?P<acq_id>acq-[a-zA-Z0-9]+)',
+        '^.*_(?P<space_id>space-[a-zA-Z0-9]+)',
+        '^.*_(?P<rec_id>rec-[a-zA-Z0-9]+)',
+        '^.*_(?P<run_id>run-[a-zA-Z0-9]+)',
+        '^.*_(?P<dir_id>dir-[a-zA-Z0-9]+)'
+    ]
+    matches = {"subject_id": None, "session_id": None, "task_id": None, "dir_id": None,
+               "acq_id": None, "space_id": None, "rec_id": None, "run_id": None}
+    for pattern in bids_patterns:
+        pat = re.compile(pattern)
+        match = pat.search(fullpath)
+        params = match.groupdict() if match is not None else {}
+        matches.update(params)
+    return matches
 
 
 def reorient_array(data, aff):
@@ -296,11 +318,12 @@ def create_report_json(dwi_corrected_file, eddy_rms, eddy_report,
 
 
 def create_bold_Mask_Sprites(bold_file):
-    boldref = load_and_reorient(str(bold_file).replace("desc-preproc_bold", "boldref"))
+    boldref = load_and_reorient(str(bold_file).replace("desc-preproc_bold",
+                                "boldref"))
     boldmask = load_and_reorient(
         str(bold_file).replace("desc-preproc_bold", "desc-brain_mask"))
-    b0 = make_a_square(load_and_reorient(boldref))
-    anat_mask = make_a_square(load_and_reorient(boldmask))
+    b0 = boldref
+    anat_mask = boldmask
 
     # make a boldref sprite
     outb0 = create_sprite_from_tiles(b0, as_bytes=True)
@@ -340,21 +363,17 @@ def get_fmriprep_stats_info(bold_corrected_file, confounds_df):
     eg {"max_fd": 99.4, "max_rmsd":5, "dimension_x": 140, "subject_id}
 
     """
-    _, file1 = op.split(bold_corrected_file)
-    bb = file1.split('_')
-    idx = {}
-    for i in range(len(bb)-1):
-        idx.update({bb[i].split('-')[0]: bb[i].split('-')[1]}) # get subjectid, sessiion id, task id if present 
-    # get those qc
-
+    subject_info = get_bids_params(bold_corrected_file.name)
     qc = {'mean_fd': np.nanmean(confounds_df.framewise_displacement),
           'max_fd': np.nanmax(confounds_df.framewise_displacement),
           'mean_rmsd': np.nanmean(confounds_df.rmsd),
           'max_rmsd': np.nanmax(confounds_df.rmsd),
           'mean_dvars': np.nanmean(confounds_df.dvars),
-          'max_dvars': np.namax(confounds_df.dvars)} 
-
-    return idx.update(qc)
+          'max_dvars': np.nanmax(confounds_df.dvars)}
+    qc.update(subject_info)
+    qc['participant_id'] = qc['subject_id']
+    qc['file_name'] = bold_corrected_file.name.replace(".nii.gz", "").replace(".nii", "")
+    return qc
 
 
 def create_bold_report_json(bold_corrected_file, confounds_file, outpath):
@@ -363,7 +382,7 @@ def create_bold_report_json(bold_corrected_file, confounds_file, outpath):
     report = {}
     report['dwi_corrected'] = createSprite4D(bold_corrected_file)
 
-    b0, mask = createB0_ColorFA_Mask_Sprites(bold_corrected_file)
+    b0, mask = create_bold_Mask_Sprites(bold_corrected_file)
     report['b0'] = b0
     report['anat_mask'] = mask
 
@@ -376,7 +395,8 @@ def create_bold_report_json(bold_corrected_file, confounds_file, outpath):
     report['eddy_params'] = confounds_df[
         ['framewise_displacement', 'rmsd']].to_numpy().tolist()
     report['eddy_quad'] = {}
-    report['qc_scores'] = get_fmriprep_stats_info(bold_corrected_file, confounds_file)
+    report['qc_scores'] = get_fmriprep_stats_info(bold_corrected_file,
+                                                  confounds_df)
     save_json(outpath, report)
     return report['qc_scores']
 
@@ -394,7 +414,7 @@ def find_confounds_file(nii_file):
                          fname in nii_file.parent.glob("*confound*tsv")]
     confounds_file, = [fname for fname in confounds_options if
                        str(nii_file).startswith(fname)]
-    return Path(confounds_file + "_desc-confounds_timeseries.tsv")
+    return Path(confounds_file + "desc-confounds_timeseries.tsv")
 
 
 def report_from_nii(nii_file):
@@ -404,8 +424,9 @@ def report_from_nii(nii_file):
 
     nii_file: pathlib.Path
     """
-    output_file = str(nii_file).replace("desc-preproc_bold.nii.gz",
-                                        "vaqc.json")
+    output_file = Path(
+        str(nii_file).replace("desc-preproc_bold.nii.gz", "vaqc.json"))
+    print("Creating", str(output_file))
     confounds_file = find_confounds_file(nii_file)
     subject_scores = create_bold_report_json(nii_file, confounds_file,
                                              output_file)
@@ -446,39 +467,20 @@ def process_fmriprep(input_dir):
     for subject_dir in subject_dirs:
         print("Processing directory:", str(subject_dir))
         image_qcs += process_fmriprep_subject(subject_dir)
+
+    # Write out the root directory vaqc.json
     group_report = {
-        "report_type": "dwi_qc_report",
-        "pipeline": "qsiprep",
-        "pipeline_version": 0,
+        "report_type": "fmriprep_qc_report",
+        "pipeline": "fmriprep",
+        "pipeline_version": "20.2.1",
         "boilerplate": "",
         "metric_explanation": {
-            "raw_dimension_x": "Number of x voxels in raw images",
-            "raw_dimension_y": "Number of y voxels in raw images",
-            "raw_dimension_z": "Number of z voxels in raw images",
-            "raw_voxel_size_x": "Voxel size in x direction in raw images",
-            "raw_voxel_size_y": "Voxel size in y direction in raw images",
-            "raw_voxel_size_z": "Voxel size in z direction in raw images",
-            "raw_max_b": "Maximum b-value in s/mm^2 in raw images",
-            "raw_neighbor_corr": "Neighboring DWI Correlation (NDC) of raw images",
-            "raw_num_bad_slices": "Number of bad slices in raw images (from DSI Studio)",
-            "raw_num_directions": "Number of directions sampled in raw images",
-            "t1_dimension_x": "Number of x voxels in preprocessed images",
-            "t1_dimension_y": "Number of y voxels in preprocessed images",
-            "t1_dimension_z": "Number of z voxels in preprocessed images",
-            "t1_voxel_size_x": "Voxel size in x direction in preprocessed images",
-            "t1_voxel_size_y": "Voxel size in y direction in preprocessed images",
-            "t1_voxel_size_z": "Voxel size in z direction in preprocessed images",
-            "t1_max_b": "Maximum b-value s/mm^2 in preprocessed images",
-            "t1_neighbor_corr": "Neighboring DWI Correlation (NDC) of preprocessed images",
-            "t1_num_bad_slices": "Number of bad slices in preprocessed images (from DSI Studio)",
-            "t1_num_directions": "Number of directions sampled in preprocessed images",
-            "mean_fd": "Mean framewise displacement from head motion",
-            "max_fd": "Maximum framewise displacement from head motion",
-            "max_rotation": "Maximum rotation from head motion",
-            "max_translation": "Maximum translation from head motion",
-            "max_rel_rotation": "Maximum rotation relative to the previous head position",
-            "max_rel_translation": "Maximum translation relative to the previous head position",
-            "t1_dice_distance": "Dice score for the overlap of the T1w-based brain mask and the b=0 ref mask"
+            'mean_fd': '',
+            'max_fd': 'maximum absoulte framewise displacement',
+            'mean_rmsd': 'max RMSD of motion parameters',
+            'max_rmsd': 'max RMSD of motion parameters',
+            'mean_dvars': 'mean dvars',
+            'max_dvars': "maximum absolute dvars",
         },
         "subjects": image_qcs
     }
